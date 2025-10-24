@@ -1,0 +1,49 @@
+name: Telegram Daily Summary
+
+on:
+  schedule:
+    - cron: '30 2 * * *'   # UTC 02:30 -> UTC+8 10:30 早上推送
+    - cron: '45 13 * * *'  # UTC 13:45 -> UTC+8 21:45 晚上推送
+  workflow_dispatch: {}     # 支持手动触发测试
+
+jobs:
+  send_summary:
+    runs-on: ubuntu-latest
+    env:
+      TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      TZ: 'Asia/Shanghai'   # 设置为北京时间（UTC+8）
+    steps:
+      - name: Show current time (for debug)
+        run: |
+          echo "Runner local time: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+          echo "Runner UTC time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+
+      - name: Prepare message body
+        id: build
+        run: |
+          H=$(date +%H)
+          if [ "$H" -ge 5 ] && [ "$H" -lt 12 ]; then
+            BODY="📅 $(date +'%Y-%m-%d') — 宏观晨报 & 学习计划\n\n🧭 宏观要闻速览：\n - \n - \n - \n\n📊 今日数据/事件：\n - \n\n📘 学习主题：\n - 美联储与宏观逻辑（当前章节）\n\n📝 今日待办：\n1.\n2.\n3.\n\n⚠️ 风险提示：\n - 注意晚间美债收益率变化。"
+          else
+            BODY="🌙 $(date +'%Y-%m-%d') — 开盘前复盘简报\n\n💹 今日市场回顾：\n - \n - \n\n🪙 板块与热点前瞻：\n - \n\n📈 学习进展：\n - 已完成章节/心得要点：\n\n🔔 明日关注：\n - \n\n🧠 今日反思：\n - "
+          fi
+          PAYLOAD=$(jq -nc --arg chat "$CHAT_ID" --arg text "$BODY" '{"chat_id":$chat, "text":$text, "disable_web_page_preview":true}')
+          echo "payload=$PAYLOAD" >> $GITHUB_OUTPUT
+
+      - name: Send to Telegram
+        if: env.TOKEN != '' && env.CHAT_ID != ''
+        run: |
+          echo "Sending Telegram message..."
+          curl -s -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "${{ steps.build.outputs.payload }}" \
+            -o /tmp/telegram_resp.json
+          echo "Telegram API response:"
+          cat /tmp/telegram_resp.json
+
+      - name: Failure hint
+        if: env.TOKEN == '' || env.CHAT_ID == ''
+        run: |
+          echo "::error::TELEGRAM_TOKEN or TELEGRAM_CHAT_ID not set in repo secrets. Please add them in Settings → Secrets and variables → Actions."
+          exit 1
